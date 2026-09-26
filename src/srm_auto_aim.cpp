@@ -1,0 +1,158 @@
+// SRM 校内赛自瞄赛道比赛入口
+// 单相机(海康) + SrmLink(官方协议) + YOLO/传统检测 + EKF跟踪 + Aimer + Shooter
+// 上行指令由 SrmLink 内部 100Hz 线程持续发送，主循环只负责视觉解算并更新最新指令
+#include <yaml-cpp/yaml.h>
+
+#include <chrono>
+#include <list>
+#include <memory>
+#include <nlohmann/json.hpp>
+#include <opencv2/opencv.hpp>
+
+#include "io/camera.hpp"
+#include "io/srm_link/srm_link.hpp"
+#include "tasks/auto_aim/aimer.hpp"
+#include "tasks/auto_aim/shooter.hpp"
+#include "tasks/auto_aim/solver.hpp"
+#include "tasks/auto_aim/tracker.hpp"
+#include "tasks/auto_aim/yolo.hpp"
+#include "tools/exiter.hpp"
+#include "tools/img_tools.hpp"
+#include "tools/logger.hpp"
+#include "tools/math_tools.hpp"
+#include "tools/plotter.hpp"
+#include "tools/recorder.hpp"
+
+using namespace std::chrono_literals;
+
+const std::string keys =
+  "{help h usage ? |                  | 输出命令行参数说明}"
+  "{debug d        | false            | 启用调试可视化与 UDP 绘图}"
+  "{record r       | false            | 录制数据}"
+  "{@config-path   | configs/srm.yaml | yaml 配置文件路径}";
+
+int main(int argc, char * argv[])
+{
+  cv::CommandLineParser cli(argc, argv, keys);
+  if (cli.has("help")) {
+    cli.printMessage();
+    return 0;
+  }
+  auto config_path = cli.get<std::string>("@config-path");
+  auto debug = cli.get<bool>("debug");
+  auto record = cli.get<bool>("record");
+
+  tools::Exiter exiter;
+  tools::Plotter plotter;
+  tools::Recorder recorder;
+
+  auto yaml = YAML::LoadFile(config_path);
+  int color_id_blue_threshold =
+    yaml["color_id_blue_threshold"] ? yaml["color_id_blue_threshold"].as<int>() : 100;
+  auto fallback_enemy_color =
+    (yaml["enemy_color"] && yaml["enemy_color"].as<std::string>() == "red")
+      ? auto_aim::Color::red
+      : auto_aim::Color::blue;
+
+  // 通信（构造时打开 USB CDC，失败直接退出）
+  io::SrmLink srm(config_path);
+  io::Camera camera(config_path);
+
+  auto_aim::YOLO detector(config_path, false);
+  auto_aim::Solver solver(config_path);
+  auto_aim::Tracker tracker(config_path, solver);
+  auto_aim::Aimer aimer(config_path);
+  auto_aim::Shooter shooter(config_path);
+
+  cv::Mat img;
+  std::chrono::steady_clock::time_point timestamp;
+  auto last_color_id = -1;
+
+  tools::logger()->info("[srm_auto_aim] system started, config={}", config_path);
+
+  while (!exiter.exit()) {
+    camera.read(img, timestamp);
+
+    // 下位机姿态（取帧时刻前 1ms，与同济入口一致）
+    Eigen::Quaterniond q = srm.q(timestamp - 1ms);
+    if (record) recorder.record(img, q, timestamp);
+    solver.set_R_gimbal2world(q);
+    Eigen::Vector3d gimbal_pos = tools::eulers(solver.R_gimbal2world(), 2, 1, 0);
+
+    // 颜色：下行 color 为本方机器人 ID；ID>=阈值视为蓝方(敌方红)，否则敌方蓝；
+    // color==0（未注入）时回退配置
+    auto gs = srm.state();
+    auto enemy_color = fallback_enemy_color;
+    if (gs.color != 0) {
+      bool self_blue = gs.color >= color_id_blue_threshold;
+      enemy_color = self_blue ? auto_aim::Color::red : auto_aim::Color::blue;
+    }
+    tracker.set_enemy_color(enemy_color);
+    if (gs.color != last_color_id) {
+      tools::logger()->info(
+        "[srm_auto_aim] robot id={}, enemy={}", gs.color,
+        enemy_color == auto_aim::Color::red ? "red" : "blue");
+      last_color_id = gs.color;
+    }
+
+    // 检测 -> 跟踪 -> 瞄准
+    auto armors = detector.detect(img);
+    auto targets = tracker.track(armors, timestamp);
+
+    io::Command command{false, false, 0, 0};
+    if (tracker.state() != "lost" && !targets.empty()) {
+      command = aimer.aim(targets, timestamp, gs.bullet_speed);
+    }
+
+    // 开火判据（Shooter 容差 + auto_fire 开关）；fire_flag 仅为视觉请求
+    command.shoot = shooter.shoot(command, aimer, targets, gimbal_pos);
+
+    // 更新最新指令（SrmLink TX 线程以 100Hz 持续下发）
+    srm.send(command.control, command.shoot, command.yaw, command.pitch);
+
+    if (debug) {
+      auto debug_img = img.clone();
+      for (const auto & armor : armors) tools::draw_points(debug_img, armor.points, {0, 255, 255});
+      if (!targets.empty()) {
+        auto target = targets.front();
+        for (const auto & xyza : target.armor_xyza_list()) {
+          auto image_points =
+            solver.reproject_armor(xyza.head(3), xyza[3], target.armor_type, target.name);
+          tools::draw_points(debug_img, image_points, {0, 255, 0});
+        }
+        auto aim_point = aimer.debug_aim_point;
+        auto image_points = solver.reproject_armor(
+          aim_point.xyza.head(3), aim_point.xyza[3], target.armor_type, target.name);
+        tools::draw_points(
+          debug_img, image_points, aim_point.valid ? cv::Scalar{0, 0, 255}
+                                                   : cv::Scalar{255, 0, 0});
+      }
+      tools::draw_text(
+        debug_img,
+        fmt::format(
+          "{} shoot={} speed={:.1f} resync={}", tracker.state(), command.shoot ? 1 : 0,
+          gs.bullet_speed, gs.resync_count),
+        {10, 30}, command.shoot ? cv::Scalar{0, 0, 255} : cv::Scalar{0, 255, 0});
+
+      nlohmann::json data;
+      data["gimbal_yaw"] = gimbal_pos[0] * 57.3;
+      data["gimbal_pitch"] = -gimbal_pos[1] * 57.3;
+      data["cmd_yaw"] = command.yaw * 57.3;
+      data["cmd_pitch"] = command.pitch * 57.3;
+      data["cmd_shoot"] = command.shoot ? 1 : 0;
+      data["bullet_speed"] = gs.bullet_speed;
+      data["robot_id"] = gs.color;
+      plotter.plot(data);
+
+      cv::resize(debug_img, debug_img, {}, 0.5, 0.5);
+      cv::imshow("srm_auto_aim", debug_img);
+      if (cv::waitKey(1) == 'q') break;
+    }
+  }
+
+  if (debug) cv::destroyAllWindows();
+  // 退出前确保停止开火请求
+  srm.send(false, false, 0, 0);
+  std::this_thread::sleep_for(100ms);
+  return 0;
+}

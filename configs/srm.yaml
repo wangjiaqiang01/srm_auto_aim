@@ -1,0 +1,76 @@
+# ============================================================
+# SRM 校内赛自瞄赛道配置（srm.yaml）
+# 注意：camera_matrix / R_camera2gimbal / t_camera2gimbal / *_offset
+#       均为基线占位值，必须在现场用 CS016 标定后替换！
+# ============================================================
+
+# 敌方颜色兜底（当下行 color=0 未注入时使用）；现场确认后改 red/blue
+enemy_color: "blue"
+# 下行 color 为本方机器人 ID：ID >= 阈值视为蓝方（敌方红），否则敌方蓝
+color_id_blue_threshold: 100
+
+#####-----神经网络参数-----#####
+yolo_name: yolov5
+classify_model: assets/tiny_resnet.onnx
+yolo11_model_path: assets/yolo11.xml
+yolov8_model_path: assets/yolo8.xml
+yolov5_model_path: assets/yolo5.xml
+# 虚拟机/NUC 无 GPU 直通，统一 CPU 推理
+device: CPU
+min_confidence: 0.8
+use_traditional: true
+
+#####-----ROI-----#####
+roi:
+  x: 420
+  y: 50
+  width: 600
+  height: 600
+use_roi: false
+
+#####-----传统灯条法参数（无灯条靶板时该方法失效，以 YOLO 为准）-----#####
+threshold: 150
+max_angle_error: 45
+min_lightbar_ratio: 1.5
+max_lightbar_ratio: 20
+min_lightbar_length: 8
+min_armor_ratio: 1
+max_armor_ratio: 5
+max_side_ratio: 1.5
+max_rectangular_error: 25
+
+#####-----tracker 参数（靶标为 4 面旋转装甲板，armor_num=4 为代码默认）-----#####
+min_detect_count: 5
+max_temp_lost_count: 15
+outpost_max_temp_lost_count: 75
+
+#####-----aimer 参数（旋转决策，现场按实测转速调整）-----#####
+yaw_offset: 0        # degree，现场标定
+pitch_offset: 0      # degree，现场标定（5m 弹道下坠主要修正项）
+comming_angle: 55    # degree，小陀螺分支“正在转出来”的可射角
+leaving_angle: 20    # degree，小于该角视为“正在转走”，停止开火
+decision_speed: 7    # rad/s，|w| 超过它才走来向角逻辑；慢靶需调低
+high_speed_delay_time: 0.030
+low_speed_delay_time: 0.015
+
+#####-----shooter 参数（宁缺毋滥：容差现场收紧）-----#####
+first_tolerance: 3     # 近距离射击容差，degree
+second_tolerance: 2    # 远距离射击容差，degree
+judge_distance: 2      # m
+auto_fire: true
+
+#####-----相机参数（海康 CS016，现场按实际 vid_pid/分辨率调整）-----#####
+camera_name: "hikrobot"
+exposure_ms: 2.5
+gain: 16
+vid_pid: "2bdf:0001"
+
+#####-----标定占位（必须现场重标）-----#####
+R_gimbal2imubody: [-1, 0, 0, 0, -1, 0, 0, 0, 1]
+camera_matrix: [1818.3669452465165, 0, 751.06226574703498, 0, 1822.494494078506, 530.43671556112133, 0, 0, 1]
+distort_coeffs: [-0.077944626599568856, 0.15447826031486889, -0.0025714394278524674, 0.00083016311301273629, 0]
+R_camera2gimbal: [-0.0083195760046954614, 0.010498791137270739, 0.99991027599468041, -0.99960756138647755, -0.026835747568381807, -0.0080352891314148939, 0.026748978935305992, -0.99958472279097077, 0.010717933047771133]
+t_camera2gimbal: [0.094969301833534511, 0.095006290298006682, 0.050987066291756609]
+
+#####-----SrmLink 通信（USB CDC，无波特率）-----#####
+com_port: "/dev/ttyACM0"
