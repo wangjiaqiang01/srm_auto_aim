@@ -26,10 +26,10 @@
 using namespace std::chrono_literals;
 
 const std::string keys =
-  "{help h usage ? |                  | 输出命令行参数说明}"
-  "{debug d        | false            | 启用调试可视化与 UDP 绘图}"
-  "{record r       | false            | 录制数据}"
-  "{@config-path   | configs/srm.yaml | yaml 配置文件路径}";
+  "{help h usage ?       |                  | 输出命令行参数说明}"
+  "{config-path c        | configs/srm.yaml | yaml 配置文件路径}"
+  "{debug d              | false            | 启用调试可视化与 UDP 绘图}"
+  "{record r             | false            | 录制数据}";
 
 int main(int argc, char * argv[])
 {
@@ -38,7 +38,7 @@ int main(int argc, char * argv[])
     cli.printMessage();
     return 0;
   }
-  auto config_path = cli.get<std::string>("@config-path");
+  auto config_path = cli.get<std::string>("config-path");
   auto debug = cli.get<bool>("debug");
   auto record = cli.get<bool>("record");
 
@@ -56,6 +56,12 @@ int main(int argc, char * argv[])
 
   // 通信（构造时打开 USB CDC，失败直接退出）
   io::SrmLink srm(config_path);
+  // 启动必须先收到至少一帧下位机姿态：RX 不通则 fail-fast，
+  // 避免静默用单位四元数跑瞄准（世界系错乱）
+  if (!srm.wait_ready(3000ms)) {
+    tools::logger()->error("[srm_auto_aim] no gimbal pose within 3s, abort");
+    return 1;
+  }
   io::Camera camera(config_path);
 
   auto_aim::YOLO detector(config_path, false);
@@ -99,9 +105,16 @@ int main(int argc, char * argv[])
     auto armors = detector.detect(img);
     auto targets = tracker.track(armors, timestamp);
 
-    io::Command command{false, false, 0, 0};
+    // 无目标/失跟踪时保持"上一次有效瞄准角度"（control=false），
+    // 避免向下位机发 0/0 导致视觉控制下云台猛甩 180°
+    static io::Command last_valid{false, false, 0, 0};
+    io::Command command{false, false, last_valid.yaw, last_valid.pitch};
     if (tracker.state() != "lost" && !targets.empty()) {
-      command = aimer.aim(targets, timestamp, gs.bullet_speed);
+      auto aim_cmd = aimer.aim(targets, timestamp, gs.bullet_speed);
+      if (aim_cmd.control) {
+        last_valid = aim_cmd;
+        command = aim_cmd;
+      }
     }
 
     // 开火判据（Shooter 容差 + auto_fire 开关）；fire_flag 仅为视觉请求

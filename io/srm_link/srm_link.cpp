@@ -154,6 +154,9 @@ SrmLink::SrmLink(const std::string & config_path)
 
   rx_thread_ = std::thread(&SrmLink::rx_loop, this);
   tx_thread_ = std::thread(&SrmLink::tx_loop, this);
+  last_send_us_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count();
   tools::logger()->info("[SrmLink] started on {}", configured_port_);
 }
 
@@ -248,9 +251,14 @@ void SrmLink::handle_packet(
     std::isfinite(speed) && speed >= SRM_MIN_VALID_BULLET_SPEED &&
     speed <= SRM_MAX_VALID_BULLET_SPEED;
   if (!speed_valid) {
-    tools::logger()->warn(
-      "[SrmLink] invalid bullet_speed={:.2f}, fallback to {:.1f}", speed,
-      SRM_DEFAULT_BULLET_SPEED);
+    // 限频 1 Hz 告警（下位机约 100Hz 帧率，逐帧 warn 会刷屏并拖慢 RX 线程）
+    auto now = std::chrono::steady_clock::now();
+    if (now - last_speed_warn_ts_ > std::chrono::seconds(1)) {
+      tools::logger()->warn(
+        "[SrmLink] invalid bullet_speed={:.2f}, fallback to {:.1f}", speed,
+        SRM_DEFAULT_BULLET_SPEED);
+      last_speed_warn_ts_ = now;
+    }
     speed = SRM_DEFAULT_BULLET_SPEED;
   }
 
@@ -318,20 +326,28 @@ void SrmLink::tx_loop()
 {
   while (!quit_) {
     TxCommand cmd;
+    bool stale = false;
     {
       std::lock_guard<std::mutex> lock(tx_mutex_);
       cmd = tx_command_;
+      auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count();
+      stale = (now_us - last_send_us_.load()) > TX_HEARTBEAT_TIMEOUT_US;
     }
 
-    // 未取得控制或无目标时，持续发送零指令 + fire_flag=0（协议要求持续发送完整帧）
-    float yaw_deg = 0.0f;
-    float pitch_deg = 0.0f;
-    int32_t fire_flag = 0;
-    if (cmd.control) {
-      yaw_deg = static_cast<float>(tools::limit_rad(cmd.yaw_rad) * RAD_TO_DEG);
-      pitch_deg = static_cast<float>(cmd.pitch_rad * RAD_TO_DEG);
-      fire_flag = cmd.fire ? 1 : 0;
+    // 失联保护：主循环（视觉解算）超过阈值未刷新指令——相机阻塞/线程卡死时，
+    // 撤销控制与开火请求，但保留最后有效角度，避免下位机收到 0/0 甩动云台
+    if (stale) {
+      cmd.control = false;
+      cmd.fire = false;
     }
+
+    // 始终发送角度指令（control=false 时下位机不执行角度，仅 fire 由 control&&fire 决定）。
+    // 无目标时主循环会填"上一次有效瞄准角度"，不会出现 0/0 猛甩
+    float yaw_deg = static_cast<float>(tools::limit_rad(cmd.yaw_rad) * RAD_TO_DEG);
+    float pitch_deg = static_cast<float>(cmd.pitch_rad * RAD_TO_DEG);
+    int32_t fire_flag = (cmd.control && cmd.fire) ? 1 : 0;
 
     auto frame = SrmFrameCodec::build_tx_frame(yaw_deg, pitch_deg, fire_flag);
     try {
@@ -346,8 +362,28 @@ void SrmLink::tx_loop()
 
 void SrmLink::send(bool control, bool fire, double yaw_rad, double pitch_rad)
 {
-  std::lock_guard<std::mutex> lock(tx_mutex_);
-  tx_command_ = {control, fire, yaw_rad, pitch_rad};
+  {
+    std::lock_guard<std::mutex> lock(tx_mutex_);
+    tx_command_ = {control, fire, yaw_rad, pitch_rad};
+  }
+  last_send_us_.store(
+    std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now().time_since_epoch())
+      .count());
+}
+
+bool SrmLink::wait_ready(std::chrono::milliseconds timeout)
+{
+  auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (!quit_) {
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      if (!quat_queue_.empty()) return true;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  return false;
 }
 
 SrmState SrmLink::state() const

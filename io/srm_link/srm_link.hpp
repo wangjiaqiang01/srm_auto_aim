@@ -130,6 +130,10 @@ public:
   // 视觉主循环调用：yaw/pitch 为弧度（与同济 Aimer 输出约定一致），内部转角度
   void send(bool control, bool fire, double yaw_rad, double pitch_rad);
 
+  // 阻塞等待首帧云台姿态（RX 已收到至少一帧），带超时。
+  // 上机启动时调用并 fail-fast：若 RX 不通，避免静默用单位姿态跑瞄准。
+  bool wait_ready(std::chrono::milliseconds timeout);
+
   SrmState state() const;
   // 取时刻 t 的云台姿态四元数（相邻两帧 slerp 插值），接口与同济 Gimbal::q 一致
   Eigen::Quaterniond q(std::chrono::steady_clock::time_point t);
@@ -163,10 +167,19 @@ private:
 
   std::mutex tx_mutex_;
   TxCommand tx_command_;
+  // 主循环最近一次 send() 的时间戳（微秒）。TX 线程据此做失联保护：
+  // 超过 TX_HEARTBEAT_TIMEOUT_US 未刷新，自动撤销 control/fire（保留角度）。
+  std::atomic<int64_t> last_send_us_{0};
+  // 弹速非法告警限频（默认 1 次/秒，防止 100Hz 固件帧率刷屏）
+  std::chrono::steady_clock::time_point last_speed_warn_ts_{};
 
   std::mutex queue_mutex_;
   std::vector<std::pair<Eigen::Quaterniond, std::chrono::steady_clock::time_point>> quat_queue_;
 };
+
+// TX 失联保护阈值。注意：VM CPU 推理实测 5~10 fps（主循环周期可达 100~270 ms），
+// 因此不能按审查建议的 200ms 设——会误伤正常低频刷新；500ms 为 2 倍最坏周期，安全兜底。
+constexpr int64_t TX_HEARTBEAT_TIMEOUT_US = 500000;
 
 }  // namespace io
 

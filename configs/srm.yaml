@@ -13,8 +13,8 @@ color_id_blue_threshold: 100
 yolo_name: yolov5
 classify_model: assets/tiny_resnet.onnx
 yolo11_model_path: assets/yolo11.xml
-yolov8_model_path: assets/yolo8.xml
-yolov5_model_path: assets/yolo5.xml
+yolov8_model_path: assets/yolov8.xml
+yolov5_model_path: assets/yolov5.xml
 # 虚拟机/NUC 无 GPU 直通，统一 CPU 推理
 device: CPU
 min_confidence: 0.8
@@ -66,7 +66,9 @@ gain: 16
 vid_pid: "2bdf:0001"
 
 #####-----标定占位（必须现场重标）-----#####
-R_gimbal2imubody: [-1, 0, 0, 0, -1, 0, 0, 0, 1]
+# 云台系->IMU 本体系旋转。与 standard3/vision-d 上游一致占位为单位阵；
+# 若误用 180° 旋转，经 R_g2b^T·R_imu·R_g2b 共轭后世界系 yaw 会整体翻转 180°（瞄准反向）。
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0, 0, 0, 1]
 camera_matrix: [1818.3669452465165, 0, 751.06226574703498, 0, 1822.494494078506, 530.43671556112133, 0, 0, 1]
 distort_coeffs: [-0.077944626599568856, 0.15447826031486889, -0.0025714394278524674, 0.00083016311301273629, 0]
 R_camera2gimbal: [-0.0083195760046954614, 0.010498791137270739, 0.99991027599468041, -0.99960756138647755, -0.026835747568381807, -0.0080352891314148939, 0.026748978935305992, -0.99958472279097077, 0.010717933047771133]

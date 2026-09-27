@@ -12,7 +12,7 @@ MvSdkLog/
 testvideos/
 watchdog.sh
 records_24/
-records_25/assets/demo/*.labeled.*
+records_25/
 
 # generated labeled video
 assets/demo/*.labeled.*

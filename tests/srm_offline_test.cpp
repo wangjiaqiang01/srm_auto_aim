@@ -2,7 +2,8 @@
 // 不依赖 GUI（无 imshow/waitKey），输出：
 //   1) 逐帧/汇总统计到 stdout（检测装甲数、跟踪状态、瞄准指令、耗时）
 //   2) 标注后的视频 <input>.labeled.mp4（绿=重投影装甲板，红=瞄准点，黄=检测框）
-// 用法：./srm_offline_test [config.yaml] [assets/demo/demo] [-s 0] [-e 0] [-o out.mp4]
+// 用法：./srm_offline_test [-c=configs/demo.yaml] [assets/demo/demo] [-s 0] [-e 0] [-o out.mp4]
+//       第一个位置参数是输入（avi/txt 前缀），配置用 -c= 显式指定；全默认即为 demo
 #include <fmt/core.h>
 
 #include <chrono>
@@ -100,7 +101,8 @@ int main(int argc, char * argv[])
     auto ts_trk = std::chrono::steady_clock::now();
     auto targets = tracker.track(armors, timestamp);
     auto ts_aim = std::chrono::steady_clock::now();
-    auto command = aimer.aim(targets, timestamp, 27, false);
+    // 弹速与比赛默认一致（22 m/s）；不在 [10,25] 会被 aimer 兜底钳制
+    auto command = aimer.aim(targets, timestamp, 22, false);
     auto ts_end = std::chrono::steady_clock::now();
 
     // 与基线一致的简化开火判据（离线无 Shooter 闭环）

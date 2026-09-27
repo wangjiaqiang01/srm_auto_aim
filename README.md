@@ -46,7 +46,9 @@ make -C build srm_link_test srm_offline_test srm_auto_aim -j$(nproc)
 ### 离线全链路识别（无需硬件 / 无需 GUI）
 
 ```bash
-./build/srm_offline_test configs/demo.yaml assets/demo/demo
+./build/srm_offline_test
+# 默认读取 configs/demo.yaml + assets/demo/demo（均为程序默认值）
+# 换配置/视频：./build/srm_offline_test -c=configs/demo.yaml assets/demo/demo
 # 输出：控制台统计 + assets/demo/demo.labeled.mp4
 # 黄框=检测、绿框=EKF 预测多板、红框=Aimer 选定瞄准点
 ```
@@ -54,7 +56,8 @@ make -C build srm_link_test srm_offline_test srm_auto_aim -j$(nproc)
 ### 比赛入口（需相机 + 下位机串口，上机阶段）
 
 ```bash
-./build/srm_auto_aim -c configs/srm.yaml
+./build/srm_auto_aim
+# 默认读取 configs/srm.yaml；自定义：-c=path/to/your.yaml
 ```
 
 ## 注意
