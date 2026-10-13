@@ -161,6 +161,7 @@ private:
   std::thread rx_thread_;
   std::thread tx_thread_;
   std::atomic<bool> quit_{false};
+  bool open_failed_ = false;  // 串口全部打开失败(如C板未插)：wait_ready 立即返回 false，不再抛异常崩溃
 
   mutable std::mutex state_mutex_;
   SrmState state_;

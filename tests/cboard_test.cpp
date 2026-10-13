@@ -1,4 +1,4 @@
-#include "io/cboard.hpp"
+#include "io/srm_link/srm_link.hpp"
 
 #include <chrono>
 #include <opencv2/opencv.hpp>
@@ -11,8 +11,8 @@
 using namespace std::chrono_literals;
 
 const std::string keys =
-  "{help h usage ? |                       | 输出命令行参数说明}"
-  "{@config-path   | configs/standard.yaml | yaml配置文件路径 }";
+  "{help h usage ? |                  | print this help}"
+  "{@config-path   | configs/srm.yaml | yaml config path }";
 
 int main(int argc, char * argv[])
 {
@@ -25,18 +25,26 @@ int main(int argc, char * argv[])
 
   tools::Exiter exiter;
 
-  io::CBoard cboard(config_path);
+  io::SrmLink srm(config_path);
+  if (!srm.wait_ready(3000ms)) {
+    tools::logger()->error("[cboard_test] no gimbal pose within 3s, abort");
+    return 1;
+  }
+  tools::logger()->info("[cboard_test] SrmLink ready, reading gimbal state...");
 
   while (!exiter.exit()) {
     auto timestamp = std::chrono::steady_clock::now();
 
-    std::this_thread::sleep_for(1ms);
+    std::this_thread::sleep_for(20ms);
 
-    Eigen::Quaterniond q = cboard.imu_at(timestamp);
+    Eigen::Quaterniond q = srm.q(timestamp);
+    auto gs = srm.state();
 
     Eigen::Vector3d eulers = tools::eulers(q, 2, 1, 0) * 57.3;
-    tools::logger()->info("z{:.2f} y{:.2f} x{:.2f} degree", eulers[0], eulers[1], eulers[2]);
-    tools::logger()->info("bullet speed {:.2f} m/s", cboard.bullet_speed);
+    tools::logger()->info(
+      "z{:.2f} y{:.2f} x{:.2f} degree | bullet speed {:.2f} m/s | color(id)={} rx={} resync={}",
+      eulers[0], eulers[1], eulers[2], gs.bullet_speed, gs.color, gs.rx_frame_count,
+      gs.resync_count);
   }
 
   return 0;

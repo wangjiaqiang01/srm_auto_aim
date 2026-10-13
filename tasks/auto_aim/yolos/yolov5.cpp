@@ -111,7 +111,7 @@ std::list<Armor> YOLOV5::parse(
     double score = output.at<float>(r, 8);
     score = sigmoid(score);
 
-    if (score < score_threshold_) continue;
+    if (score < min_confidence_) continue;
 
     std::vector<cv::Point2f> armor_key_points;
 
@@ -157,7 +157,7 @@ std::list<Armor> YOLOV5::parse(
   }
 
   std::vector<int> indices;
-  cv::dnn::NMSBoxes(boxes, confidences, score_threshold_, nms_threshold_, indices);
+  cv::dnn::NMSBoxes(boxes, confidences, min_confidence_, nms_threshold_, indices);
 
   std::list<Armor> armors;
   for (const auto & i : indices) {

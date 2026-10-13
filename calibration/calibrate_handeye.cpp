@@ -43,7 +43,7 @@ void load(
   auto yaml = YAML::LoadFile(config_path);
   auto pattern_cols = yaml["pattern_cols"].as<int>();
   auto pattern_rows = yaml["pattern_rows"].as<int>();
-  auto center_distance_mm = yaml["center_distance_mm"].as<double>();
+  auto square_size_mm = yaml["square_size_mm"].as<double>();
   R_gimbal2imubody_data = yaml["R_gimbal2imubody"].as<std::vector<double>>();
   auto camera_matrix_data = yaml["camera_matrix"].as<std::vector<double>>();
   auto distort_coeffs_data = yaml["distort_coeffs"].as<std::vector<double>>();
@@ -73,9 +73,18 @@ void load(
     tools::draw_text(drawing, fmt::format("pitch {:.2f}", ypr[1]), {40, 80}, {0, 0, 255});
     tools::draw_text(drawing, fmt::format("roll  {:.2f}", ypr[2]), {40, 120}, {0, 0, 255});
 
-    // 识别标定板
+    // 识别棋盘格内角点
+    cv::Mat gray;
+    cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
     std::vector<cv::Point2f> centers_2d;
-    auto success = cv::findCirclesGrid(img, pattern_size, centers_2d);  // 默认是对称圆点图案
+    auto success = cv::findChessboardCorners(
+      gray, pattern_size, centers_2d,
+      cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE | cv::CALIB_CB_FAST_CHECK);
+    if (success) {
+      cv::cornerSubPix(
+        gray, centers_2d, cv::Size(11, 11), cv::Size(-1, -1),
+        cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 30, 1e-3));
+    }
 
     // 显示识别结果
     cv::drawChessboardCorners(drawing, pattern_size, centers_2d, success);
@@ -92,9 +101,10 @@ void load(
     cv::Mat R_gimbal2world_cv;
     cv::eigen2cv(R_gimbal2world, R_gimbal2world_cv);
     cv::Mat rvec, tvec;
-    auto centers_3d_ = centers_3d(pattern_size, center_distance_mm);
+    auto centers_3d_ = centers_3d(pattern_size, square_size_mm);
     cv::solvePnP(
-      centers_3d_, centers_2d, camera_matrix, distort_coeffs, rvec, tvec, false, cv::SOLVEPNP_IPPE);
+      centers_3d_, centers_2d, camera_matrix, distort_coeffs, rvec, tvec, false,
+      cv::SOLVEPNP_ITERATIVE);
 
     // 记录所需的数据
     R_gimbal2world_list.emplace_back(R_gimbal2world_cv);

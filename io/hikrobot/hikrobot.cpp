@@ -87,7 +87,10 @@ void HikRobot::capture_start()
   set_enum_value("GainAuto", MV_GAIN_MODE_OFF);
   set_float_value("ExposureTime", exposure_us_);
   set_float_value("Gain", gain_);
-  MV_CC_SetFrameRate(handle_, 150);
+  ret = MV_CC_SetFrameRate(handle_, 120);
+  if (ret != MV_OK) {
+    tools::logger()->warn("MV_CC_SetFrameRate(120) failed: {:#x}", ret);
+  }
 
   ret = MV_CC_StartGrabbing(handle_);
   if (ret != MV_OK) {
@@ -100,6 +103,11 @@ void HikRobot::capture_start()
 
     capturing_ = true;
 
+    unsigned int fail_count = 0;
+    unsigned int frame_count = 0;
+    bool logged_frame_info = false;
+    std::size_t raw_bytes = 0;
+    auto stats_start = std::chrono::steady_clock::now();
     MV_FRAME_OUT raw;
     MV_CC_PIXEL_CONVERT_PARAM cvt_param;
 
@@ -111,11 +119,40 @@ void HikRobot::capture_start()
 
       ret = MV_CC_GetImageBuffer(handle_, &raw, nMsec);
       if (ret != MV_OK) {
-        tools::logger()->warn("MV_CC_GetImageBuffer failed: {:#x}", ret);
-        break;
+        if (ret != MV_E_NODATA) {
+          tools::logger()->warn("MV_CC_GetImageBuffer failed: {:#x}", ret);
+          break;
+        }
+        if (++fail_count > 30) {
+          tools::logger()->warn("MV_CC_GetImageBuffer failed {:#x} x{} -> capture thread exit", ret, fail_count);
+          break;
+        }
+        tools::logger()->warn("MV_CC_GetImageBuffer failed: {:#x} (retry {}/30)", ret, fail_count);
+        continue;
       }
+      fail_count = 0;
 
       auto timestamp = std::chrono::steady_clock::now();
+      const auto & frame_info = raw.stFrameInfo;
+      if (!logged_frame_info) {
+        logged_frame_info = true;
+        stats_start = timestamp;
+        tools::logger()->info(
+          "[HikRobot] raw frame {}x{}, pixel type {:#x}, {} bytes",
+          frame_info.nWidth, frame_info.nHeight,
+          static_cast<unsigned int>(frame_info.enPixelType), frame_info.nFrameLen);
+      }
+      ++frame_count;
+      raw_bytes += frame_info.nFrameLen;
+      auto elapsed = std::chrono::duration<double>(timestamp - stats_start).count();
+      if (elapsed >= 5.0) {
+        tools::logger()->info(
+          "[HikRobot] capture {:.1f} fps, raw {:.1f} MiB/s", frame_count / elapsed,
+          raw_bytes / elapsed / (1024.0 * 1024.0));
+        frame_count = 0;
+        raw_bytes = 0;
+        stats_start = timestamp;
+      }
       cv::Mat img(cv::Size(raw.stFrameInfo.nWidth, raw.stFrameInfo.nHeight), CV_8U, raw.pBufAddr);
 
       cvt_param.nWidth = raw.stFrameInfo.nWidth;
@@ -130,7 +167,6 @@ void HikRobot::capture_start()
       cvt_param.enDstPixelType = PixelType_Gvsp_BGR8_Packed;
 
       // ret = MV_CC_ConvertPixelType(handle_, &cvt_param);
-      const auto & frame_info = raw.stFrameInfo;
       auto pixel_type = frame_info.enPixelType;
       cv::Mat dst_image;
       const static std::unordered_map<MvGvspPixelType, cv::ColorConversionCodes> type_map = {
@@ -140,6 +176,8 @@ void HikRobot::capture_start()
         {PixelType_Gvsp_BayerBG8, cv::COLOR_BayerBG2RGB}};
       cv::cvtColor(img, dst_image, type_map.at(pixel_type));
       img = dst_image;
+      // 由于安装问题，现将画面倒置
+      cv::flip(img, img, -1);  // 180度翻转（上下+左右）
 
       queue_.push({img, timestamp});
 

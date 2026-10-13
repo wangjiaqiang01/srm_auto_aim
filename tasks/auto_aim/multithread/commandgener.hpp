@@ -1,9 +1,10 @@
 #ifndef AUTO_AIM_MULTITHREAD__HPP
 #define AUTO_AIM_MULTITHREAD__HPP
 
+#include <functional>
 #include <optional>
 
-#include "io/cboard.hpp"
+#include "io/command.hpp"
 #include "tasks/auto_aim/shooter.hpp"
 #include "tasks/auto_aim/tracker.hpp"
 #include "tasks/omniperception/decider.hpp"
@@ -18,8 +19,11 @@ class CommandGener
 {
 public:
   CommandGener(
-    auto_aim::Shooter & shooter, auto_aim::Aimer & aimer, io::CBoard & cboard,
-    tools::Plotter & plotter, bool debug = false);
+    auto_aim::Shooter & shooter, auto_aim::Aimer & aimer,
+    std::function<void(const io::Command &)> send, tools::Plotter & plotter,
+    bool debug = false);
+
+  void stop();
 
   ~CommandGener();
 
@@ -37,7 +41,7 @@ private:
     Eigen::Vector3d gimbal_pos;
   };
 
-  io::CBoard & cboard_;
+  std::function<void(const io::Command &)> send_cb_;
   auto_aim::Shooter & shooter_;
   auto_aim::Aimer & aimer_;
   tools::Plotter & plotter_;

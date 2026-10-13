@@ -155,7 +155,51 @@ int main(int argc, char * argv[])
       data["cmd_shoot"] = command.shoot ? 1 : 0;
       data["bullet_speed"] = gs.bullet_speed;
       data["robot_id"] = gs.color;
+      // EKF è¯ä»·åéï¼debug onlyï¼
+      // EKF debug vars, always sent, hold last value when no target
+      // EKF debug vars, always sent, hold the last value when no target.
+      // armor_yaw and ekf_armor_yaw refer to the same physical armor plate.
+      static double last_meas_yaw = 0, last_ekf_yaw = 0, last_ekf_armor_yaw = 0;
+      static double last_ekf_w = 0, last_ekf_r = 0, last_yaw_residual = 0;
+      static int last_target_id = -1;
+      static bool last_target_valid = false;
+      last_target_valid = !targets.empty();
+      if (!targets.empty()) {
+        const auto & tgt = targets.front();
+        const auto ekf_x = tgt.ekf_x();
+        const auto ekf_armor_yaw =
+          tools::limit_rad(ekf_x[6] + tgt.last_id * 2.0 * CV_PI / 4.0);
+        last_meas_yaw = tgt.debug_meas_yaw * 57.3;
+        last_ekf_yaw = ekf_x[6] * 57.3;
+        last_ekf_armor_yaw = ekf_armor_yaw * 57.3;
+        last_ekf_w = ekf_x[7];
+        last_ekf_r = ekf_x[8];
+        last_yaw_residual = tools::limit_rad(tgt.debug_meas_yaw - ekf_armor_yaw) * 57.3;
+        last_target_id = tgt.last_id;
+        last_target_valid = true;
+      }
+      data["target_valid"] = last_target_valid ? 1 : 0;
+      data["target_id"] = last_target_id;
+      data["armor_yaw"] = last_meas_yaw;
+      data["ekf_armor_yaw"] = last_ekf_armor_yaw;
+      data["armor_yaw_residual"] = last_yaw_residual;
+      data["meas_yaw"] = last_meas_yaw;
+      data["ekf_yaw"] = last_ekf_yaw;
+      data["ekf_w"] = last_ekf_w;
+      data["ekf_r"] = last_ekf_r;
+      data["yaw_residual"] = last_yaw_residual;
       plotter.plot(data);
+
+      static auto last_ekf_log = std::chrono::steady_clock::time_point{};
+      const auto now = std::chrono::steady_clock::now();
+      if (now - last_ekf_log >= 200ms) {
+        tools::logger()->info(
+          "[EKF] valid={} armor_yaw={:.2f} ekf_armor_yaw={:.2f} residual={:.2f} w={:.3f} "
+          "r={:.3f} id={} state={}",
+          last_target_valid ? 1 : 0, last_meas_yaw, last_ekf_armor_yaw, last_yaw_residual,
+          last_ekf_w, last_ekf_r, last_target_id, tracker.state());
+        last_ekf_log = now;
+      }
 
       cv::resize(debug_img, debug_img, {}, 0.5, 0.5);
       cv::imshow("srm_auto_aim", debug_img);

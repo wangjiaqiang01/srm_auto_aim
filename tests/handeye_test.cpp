@@ -9,7 +9,7 @@
 #include <opencv2/core/eigen.hpp>
 
 #include "io/camera.hpp"
-#include "io/cboard.hpp"
+#include "io/srm_link/srm_link.hpp"
 #include "tasks/auto_aim/solver.hpp"
 #include "tools/exiter.hpp"
 #include "tools/img_tools.hpp"
@@ -39,7 +39,11 @@ int main(int argc, char * argv[])
   auto grid_num = yaml["grid_num"].as<int>();
   auto grid_size = yaml["grid_size"].as<double>();
   auto delay = yaml["delay"].as<int>();
-  io::CBoard cboard(config_path);
+  io::SrmLink srm(config_path);
+  if (!srm.wait_ready(std::chrono::milliseconds(3000))) {
+    tools::logger()->error("[handeye_test] no gimbal pose within 3s, abort");
+    return 1;
+  }
   io::Camera camera(config_path);
   auto_aim::Solver solver(config_path);
 
@@ -55,7 +59,7 @@ int main(int argc, char * argv[])
   }
   while (!exiter.exit()) {
     camera.read(img, t);
-    q = cboard.imu_at(t - 1ms * delay);
+    q = srm.q(t - std::chrono::milliseconds(delay));
     solver.set_R_gimbal2world(q);
     cv::Mat result = img.clone();
     std::vector<cv::Point2f> projectedPoints = solver.world2pixel(points);

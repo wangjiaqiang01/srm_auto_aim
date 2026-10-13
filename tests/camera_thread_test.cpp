@@ -9,7 +9,6 @@
 #include <thread>
 
 #include "io/camera.hpp"
-#include "io/cboard.hpp"
 #include "tasks/auto_aim/aimer.hpp"
 #include "tasks/auto_aim/solver.hpp"
 #include "tasks/auto_aim/tracker.hpp"
@@ -24,7 +23,7 @@
 
 const std::string keys =
   "{help h usage ? |                        | 输出命令行参数说明}"
-  "{@config-path   | configs/ascento.yaml | 位置参数，yaml配置文件路径 }";
+  "{@config-path   | configs/srm.yaml | 位置参数，yaml配置文件路径 }";
 
 tools::OrderedQueue frame_queue;
 

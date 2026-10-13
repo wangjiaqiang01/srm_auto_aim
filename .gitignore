@@ -16,3 +16,4 @@ records_25/
 
 # generated labeled video
 assets/demo/*.labeled.*
+*.bak

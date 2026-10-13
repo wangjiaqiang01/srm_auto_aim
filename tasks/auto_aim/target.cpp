@@ -99,7 +99,7 @@ void Target::predict(double dt)
     v2 = 0.1;  // 前哨站角加速度方差
   } else {
     v1 = 100;  // 加速度方差
-    v2 = 400;  // 角加速度方差
+    v2 = 0.1;  // 调参: 原版 400 -> 0.1（匀速旋转靶 w 平滑）
   }
   auto a = dt * dt * dt * dt / 4;
   auto b = dt * dt * dt / 2;
@@ -128,7 +128,7 @@ void Target::predict(double dt)
     return x_prior;
   };
 
-  // 前哨站转速特判
+  // 前哨站转速特判（正常不影响4面旋转靶；若YOLO误判靶为outpost会导致w被钳2.51，届时注释此段）
   if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
     this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
 
@@ -186,6 +186,7 @@ void Target::update(const Armor & armor)
 
 void Target::update_ypda(const Armor & armor, int id)
 {
+  debug_meas_yaw = armor.ypr_in_world[0];  // debug only
   //观测jacobi
   Eigen::MatrixXd H = h_jacobian(ekf_.x, id);
   // Eigen::VectorXd R_dig{{4e-3, 4e-3, 1, 9e-2}};

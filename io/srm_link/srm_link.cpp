@@ -149,7 +149,12 @@ SrmLink::SrmLink(const std::string & config_path)
   serial_.setTimeout(20, 20, 0, 20, 0);
 
   if (!open_serial()) {
-    throw std::runtime_error("[SrmLink] failed to open any serial port");
+    // C 板未插/未上电/未识别时不再抛异常崩溃（此前 terminate），
+    // 记录失败标志，由 wait_ready() 立即返回 false，调用方走优雅 abort
+    tools::logger()->error(
+      "[SrmLink] cannot open any serial port; check C-board USB (/dev/ttyACM0) & power");
+    open_failed_ = true;
+    return;
   }
 
   rx_thread_ = std::thread(&SrmLink::rx_loop, this);
@@ -251,14 +256,7 @@ void SrmLink::handle_packet(
     std::isfinite(speed) && speed >= SRM_MIN_VALID_BULLET_SPEED &&
     speed <= SRM_MAX_VALID_BULLET_SPEED;
   if (!speed_valid) {
-    // 限频 1 Hz 告警（下位机约 100Hz 帧率，逐帧 warn 会刷屏并拖慢 RX 线程）
-    auto now = std::chrono::steady_clock::now();
-    if (now - last_speed_warn_ts_ > std::chrono::seconds(1)) {
-      tools::logger()->warn(
-        "[SrmLink] invalid bullet_speed={:.2f}, fallback to {:.1f}", speed,
-        SRM_DEFAULT_BULLET_SPEED);
-      last_speed_warn_ts_ = now;
-    }
+    // 暂停弹速为 0 的周期告警；保持弹道计算所需的默认值。
     speed = SRM_DEFAULT_BULLET_SPEED;
   }
 
@@ -374,6 +372,7 @@ void SrmLink::send(bool control, bool fire, double yaw_rad, double pitch_rad)
 
 bool SrmLink::wait_ready(std::chrono::milliseconds timeout)
 {
+  if (open_failed_) return false;  // 串口打开失败直接失败返回
   auto deadline = std::chrono::steady_clock::now() + timeout;
   while (!quit_) {
     {

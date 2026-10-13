@@ -49,13 +49,13 @@ void MultiThreadDetector::push(cv::Mat img, std::chrono::steady_clock::time_poin
   auto w = static_cast<int>(img.cols * scale);
 
   // preproces
-  auto input = cv::Mat(640, 640, CV_8UC3, cv::Scalar(0, 0, 0));
+  ov::Tensor input_tensor(ov::element::u8, {1, 640, 640, 3});
+  cv::Mat input(640, 640, CV_8UC3, input_tensor.data());
+  input.setTo(cv::Scalar(0, 0, 0));
   auto roi = cv::Rect(0, 0, w, h);
   cv::resize(img, input(roi), {w, h});
 
-  auto input_port = compiled_model_.input();
   auto infer_request = compiled_model_.create_infer_request();
-  ov::Tensor input_tensor(ov::element::u8, {1, 640, 640, 3}, input.data);
 
   infer_request.set_input_tensor(input_tensor);
   infer_request.start_async();

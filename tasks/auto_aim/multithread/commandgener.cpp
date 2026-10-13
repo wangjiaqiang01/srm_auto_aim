@@ -8,14 +8,16 @@ namespace multithread
 {
 
 CommandGener::CommandGener(
-  auto_aim::Shooter & shooter, auto_aim::Aimer & aimer, io::CBoard & cboard,
-  tools::Plotter & plotter, bool debug)
-: shooter_(shooter), aimer_(aimer), cboard_(cboard), plotter_(plotter), stop_(false), debug_(debug)
+  auto_aim::Shooter & shooter, auto_aim::Aimer & aimer,
+  std::function<void(const io::Command &)> send, tools::Plotter & plotter, bool debug)
+: shooter_(shooter), aimer_(aimer), send_cb_(send), plotter_(plotter), stop_(false), debug_(debug)
 {
   thread_ = std::thread(&CommandGener::generate_command, this);
 }
 
-CommandGener::~CommandGener()
+CommandGener::~CommandGener() { stop(); }
+
+void CommandGener::stop()
 {
   {
     std::lock_guard<std::mutex> lock(mtx_);
@@ -54,7 +56,7 @@ void CommandGener::generate_command()
                                    : std::sqrt(
                                        tools::square(input->targets_.front().ekf_x()[0]) +
                                        tools::square(input->targets_.front().ekf_x()[2]));
-      cboard_.send(command);
+      send_cb_(command);
       if (debug_) {
         nlohmann::json data;
         data["t"] = tools::delta_time(std::chrono::steady_clock::now(), t0);

@@ -33,6 +33,7 @@ public:
   void predict(double dt);
   void update(const Armor & armor);
 
+  double debug_meas_yaw = 0;  // debug only: 最近一次观测法线角
   Eigen::VectorXd ekf_x() const;
   const tools::ExtendedKalmanFilter & ekf() const;
   std::vector<Eigen::Vector4d> armor_xyza_list() const;
