@@ -90,3 +90,12 @@ t_camera2gimbal: [0.1331282070831046, 0.0036470556535365965, 0.03821713376455349
 
 #####-----SrmLink 通信（USB CDC，无波特率）-----#####
 com_port: "/dev/ttyACM0"
+
+#####-----planner(MPC)-----#####
+fire_thresh: 0.002
+max_yaw_acc: 50
+Q_yaw: [9e6, 0]
+R_yaw: [1]
+max_pitch_acc: 100
+Q_pitch: [9e6, 0]
+R_pitch: [1]

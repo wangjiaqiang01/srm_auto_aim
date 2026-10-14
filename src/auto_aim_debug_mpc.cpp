@@ -7,7 +7,7 @@
 #include <thread>
 
 #include "io/camera.hpp"
-#include "io/gimbal/gimbal.hpp"
+#include "io/srm_link/srm_link.hpp"
 #include "tasks/auto_aim/planner/planner.hpp"
 #include "tasks/auto_aim/solver.hpp"
 #include "tasks/auto_aim/tracker.hpp"
@@ -23,7 +23,7 @@ using namespace std::chrono_literals;
 
 const std::string keys =
   "{help h usage ? |                        | 输出命令行参数说明}"
-  "{@config-path   | configs/sentry.yaml | 位置参数，yaml配置文件路径 }";
+  "{@config-path   | configs/srm.yaml | 位置参数，yaml配置文件路径 }";
 
 int main(int argc, char * argv[])
 {
@@ -37,7 +37,11 @@ int main(int argc, char * argv[])
     return 0;
   }
 
-  io::Gimbal gimbal(config_path);
+  io::SrmLink srm(config_path);
+  if (!srm.wait_ready(std::chrono::milliseconds(3000))) {
+    tools::logger()->error("[auto_aim_debug_mpc] no gimbal pose within 3s, abort");
+    return 1;
+  }
   io::Camera camera(config_path);
 
   auto_aim::YOLO yolo(config_path, true);
@@ -51,27 +55,34 @@ int main(int argc, char * argv[])
   std::atomic<bool> quit = false;
   auto plan_thread = std::thread([&]() {
     auto t0 = std::chrono::steady_clock::now();
-    uint16_t last_bullet_count = 0;
+    // SrmLink 无 yaw_vel/pitch_vel/bullet_count 反馈，gimbal_*_vel 用相邻状态差分估计
+    double prev_yaw = 0.0, prev_pitch = 0.0;
+    auto prev_t = t0;
 
     while (!quit) {
       auto target = target_queue.front();
-      auto gs = gimbal.state();
+      auto gs = srm.state();
       auto plan = planner.plan(target, gs.bullet_speed);
 
-      gimbal.send(
-        plan.control, plan.fire, plan.yaw, plan.yaw_vel, plan.yaw_acc, plan.pitch, plan.pitch_vel,
-        plan.pitch_acc);
+      // SrmLink 协议只支持 yaw/pitch 角度目标 + fire，MPC 的 vel/acc 前馈无法下发，
+      // 云台角度跟踪由下位机完成
+      srm.send(plan.control, plan.fire, plan.yaw, plan.pitch);
 
-      auto fired = gs.bullet_count > last_bullet_count;
-      last_bullet_count = gs.bullet_count;
+      auto now = std::chrono::steady_clock::now();
+      double dt = tools::delta_time(now, prev_t);
+      double yaw_vel = (dt > 1e-6) ? (gs.yaw - prev_yaw) / dt : 0.0;
+      double pitch_vel = (dt > 1e-6) ? (gs.pitch - prev_pitch) / dt : 0.0;
+      prev_yaw = gs.yaw;
+      prev_pitch = gs.pitch;
+      prev_t = now;
 
       nlohmann::json data;
       data["t"] = tools::delta_time(std::chrono::steady_clock::now(), t0);
 
       data["gimbal_yaw"] = gs.yaw;
-      data["gimbal_yaw_vel"] = gs.yaw_vel;
+      data["gimbal_yaw_vel"] = yaw_vel;      // 差分估计（SrmLink 无直接反馈）
       data["gimbal_pitch"] = gs.pitch;
-      data["gimbal_pitch_vel"] = gs.pitch_vel;
+      data["gimbal_pitch_vel"] = pitch_vel;  // 差分估计（SrmLink 无直接反馈）
 
       data["target_yaw"] = plan.target_yaw;
       data["target_pitch"] = plan.target_pitch;
@@ -85,7 +96,7 @@ int main(int argc, char * argv[])
       data["plan_pitch_acc"] = plan.pitch_acc;
 
       data["fire"] = plan.fire ? 1 : 0;
-      data["fired"] = fired ? 1 : 0;
+      data["fired"] = 0;  // SrmLink 无弹丸计数反馈，置 0
 
       if (target.has_value()) {
         data["target_z"] = target->ekf_x()[4];   //z
@@ -109,7 +120,7 @@ int main(int argc, char * argv[])
 
   while (!exiter.exit()) {
     camera.read(img, t);
-    auto q = gimbal.q(t);
+    auto q = srm.q(t);
 
     solver.set_R_gimbal2world(q);
     auto armors = yolo.detect(img);
@@ -144,7 +155,7 @@ int main(int argc, char * argv[])
 
   quit = true;
   if (plan_thread.joinable()) plan_thread.join();
-  gimbal.send(false, false, 0, 0, 0, 0, 0, 0);
+  srm.send(false, false, 0, 0);
 
   return 0;
 }
