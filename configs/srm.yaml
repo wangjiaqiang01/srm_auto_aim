@@ -45,8 +45,8 @@ equal_radius: true
 # 旋转装甲板 EKF 基线：最终 5m、2rps、半径 0.20m；当前先用于 2.5m 调试
 rotation_radius: 0.20
 ekf_process_accel_variance: 100
-ekf_process_angular_accel_variance: 3  # 回滚：半锁失败，恢复 w 平滑基线（v2小，w变化幅度小）  # 调参：给 w 足够随机游走自由度，尝试让 w 从低估爬向 12.566（原3，v2小则w锁死在低估）  # 调参：w/θ 过程噪声调小，w 更平滑稳定（原10）  # 角加速噪声调小（匀速旋转靶，w 更平滑；vision 上游=10）
-ekf_yaw_measurement_variance: 0.5  # 调参：弱化法线角观测权重，抑制换面/相位失配导致的 θ 尖峰（原0.01）  # 法线角观测（id 判定与 h[3] 已统一为法线角定义，z[3] 有效）
+ekf_process_angular_accel_variance: 0.1  # 恢复调参期稳定值(5803d17): v2=0.1 时 w 稳定 3.07; 修正 Codex 错误参数(3)导致 w 漂移
+ekf_yaw_measurement_variance: 0.09  # 恢复调参期稳定值(5803d17): R[3]=9e-2; 尖峰由 max_armor_yaw_innovation 过滤承担; 修正 Codex 错误参数(0.5)
 max_armor_yaw_innovation: 20  # degree; reject unstable long-range normal-angle estimates
 rotation_target: true  # rotating rig: four faces, fixed model radius, class-tolerant association
 max_temp_lost_count: 15
