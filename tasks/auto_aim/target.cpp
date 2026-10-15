@@ -1,5 +1,6 @@
 #include "target.hpp"
 
+#include <algorithm>
 #include <numeric>
 
 #include "tools/logger.hpp"
@@ -9,13 +10,14 @@ namespace auto_aim
 {
 Target::Target(
   const Armor & armor, std::chrono::steady_clock::time_point t, double radius, int armor_num,
-  Eigen::VectorXd P0_dig)
+  Eigen::VectorXd P0_dig, const TargetModelConfig & config)
 : name(armor.name),
   armor_type(armor.type),
   jumped(false),
   last_id(0),
   update_count_(0),
   armor_num_(armor_num),
+  model_config_(config),
   t_(t),
   is_switch_(false),
   is_converged_(false),
@@ -94,12 +96,12 @@ void Target::predict(double dt)
   // Piecewise White Noise Model
   // https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/master/07-Kalman-Filter-Math.ipynb
   double v1, v2;
-  if (name == ArmorName::outpost) {
+  if (name == ArmorName::outpost && !model_config_.rotation_target) {
     v1 = 10;   // 前哨站加速度方差
     v2 = 0.1;  // 前哨站角加速度方差
   } else {
-    v1 = 100;  // 加速度方差
-    v2 = 0.1;  // 调参: 原版 400 -> 0.1（匀速旋转靶 w 平滑）
+    v1 = model_config_.process_accel_variance;
+    v2 = model_config_.process_angular_accel_variance;
   }
   auto a = dt * dt * dt * dt / 4;
   auto b = dt * dt * dt / 2;
@@ -128,9 +130,6 @@ void Target::predict(double dt)
     return x_prior;
   };
 
-  // 前哨站转速特判（正常不影响4面旋转靶；若YOLO误判靶为outpost会导致w被钳2.51，届时注释此段）
-  if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
-    this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
 
   ekf_.predict(F, Q, f);
 }
@@ -156,7 +155,7 @@ void Target::update(const Armor & armor)
     });
 
   // 取前3个distance最小的装甲板
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < std::min(3, armor_num_); i++) {
     const auto & xyza = xyza_i_list[i].first;
     Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
     auto angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
@@ -194,7 +193,7 @@ void Target::update_ypda(const Armor & armor, int id)
   auto delta_angle = tools::limit_rad(armor.ypr_in_world[0] - center_yaw);
   Eigen::VectorXd R_dig{
     {4e-3, 4e-3, log(std::abs(delta_angle) + 1) + 1,
-     log(std::abs(armor.ypd_in_world[2]) + 1) / 200 + 9e-2}};
+     model_config_.yaw_measurement_variance}};
 
   //测量过程噪声偏差的方差
   Eigen::MatrixXd R = R_dig.asDiagonal();
@@ -218,7 +217,12 @@ void Target::update_ypda(const Armor & armor, int id)
 
   const Eigen::VectorXd & ypd = armor.ypd_in_world;
   const Eigen::VectorXd & ypr = armor.ypr_in_world;
-  Eigen::VectorXd z{{ypd[0], ypd[1], ypd[2], ypr[0]}};  //获得观测量
+  const double predicted_yaw = tools::limit_rad(ekf_.x[6] + id * 2 * CV_PI / armor_num_);
+  const double yaw_innovation = tools::limit_rad(ypr[0] - predicted_yaw);
+  const double measured_yaw = std::abs(yaw_innovation) <= model_config_.max_yaw_innovation
+                                ? ypr[0]
+                                : predicted_yaw;
+  Eigen::VectorXd z{{ypd[0], ypd[1], ypd[2], measured_yaw}};  //获得观测量
 
   ekf_.update(z, H, R, h, z_subtract);
 }
@@ -226,6 +230,8 @@ void Target::update_ypda(const Armor & armor, int id)
 Eigen::VectorXd Target::ekf_x() const { return ekf_.x; }
 
 const tools::ExtendedKalmanFilter & Target::ekf() const { return ekf_; }
+
+bool Target::rotation_target() const { return model_config_.rotation_target; }
 
 std::vector<Eigen::Vector4d> Target::armor_xyza_list() const
 {
@@ -242,7 +248,9 @@ std::vector<Eigen::Vector4d> Target::armor_xyza_list() const
 bool Target::diverged() const
 {
   auto r_ok = ekf_.x[8] > 0.05 && ekf_.x[8] < 0.5;
-  auto l_ok = ekf_.x[8] + ekf_.x[9] > 0.05 && ekf_.x[8] + ekf_.x[9] < 0.5;
+  auto l_ok = model_config_.equal_radius ||
+              (ekf_.x[8] + std::abs(ekf_.x[9]) > 0.05 &&
+               ekf_.x[8] + std::abs(ekf_.x[9]) < 0.5);
 
   if (r_ok && l_ok) return false;
 
@@ -270,7 +278,7 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto angle = tools::limit_rad(x[6] + id * 2 * CV_PI / armor_num_);
   auto use_l_h = (armor_num_ == 4) && (id == 1 || id == 3);
 
-  auto r = (use_l_h) ? x[8] + x[9] : x[8];
+  auto r = (use_l_h && !model_config_.equal_radius) ? x[8] + x[9] : x[8];
   auto armor_x = x[0] - r * std::cos(angle);
   auto armor_y = x[2] - r * std::sin(angle);
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
@@ -283,14 +291,14 @@ Eigen::MatrixXd Target::h_jacobian(const Eigen::VectorXd & x, int id) const
   auto angle = tools::limit_rad(x[6] + id * 2 * CV_PI / armor_num_);
   auto use_l_h = (armor_num_ == 4) && (id == 1 || id == 3);
 
-  auto r = (use_l_h) ? x[8] + x[9] : x[8];
+  auto r = (use_l_h && !model_config_.equal_radius) ? x[8] + x[9] : x[8];
   auto dx_da = r * std::sin(angle);
   auto dy_da = -r * std::cos(angle);
 
   auto dx_dr = -std::cos(angle);
   auto dy_dr = -std::sin(angle);
-  auto dx_dl = (use_l_h) ? -std::cos(angle) : 0.0;
-  auto dy_dl = (use_l_h) ? -std::sin(angle) : 0.0;
+  auto dx_dl = (use_l_h && !model_config_.equal_radius) ? -std::cos(angle) : 0.0;
+  auto dy_dl = (use_l_h && !model_config_.equal_radius) ? -std::sin(angle) : 0.0;
 
   auto dz_dh = (use_l_h) ? 1.0 : 0.0;
 

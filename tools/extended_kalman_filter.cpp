@@ -47,27 +47,29 @@ Eigen::VectorXd ExtendedKalmanFilter::update(
   std::function<Eigen::VectorXd(const Eigen::VectorXd &, const Eigen::VectorXd &)> z_subtract)
 {
   Eigen::VectorXd x_prior = x;
-  Eigen::MatrixXd K = P * H.transpose() * (H * P * H.transpose() + R).inverse();
+  Eigen::MatrixXd S = H * P * H.transpose() + R;
+  Eigen::VectorXd innovation = z_subtract(z, h(x_prior));
+  double nis = innovation.transpose() * S.inverse() * innovation;
+  Eigen::MatrixXd K = P * H.transpose() * S.inverse();
 
   // Stable Compution of the Posterior Covariance
   // https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/master/07-Kalman-Filter-Math.ipynb
   P = (I - K * H) * P * (I - K * H).transpose() + K * R * K.transpose();
 
-  x = x_add(x, K * z_subtract(z, h(x)));
+  x = x_add(x_prior, K * innovation);
 
   /// 卡方检验
   Eigen::VectorXd residual = z_subtract(z, h(x));
-  // 新增检验
-  Eigen::MatrixXd S = H * P * H.transpose() + R;
-  double nis = residual.transpose() * S.inverse() * residual;
   double nees = (x - x_prior).transpose() * P.inverse() * (x - x_prior);
 
   // 卡方检验阈值（自由度=4，取置信水平95%）
-  constexpr double nis_threshold = 0.711;
+  constexpr double nis_threshold = 9.488;
   constexpr double nees_threshold = 0.711;
 
-  if (nis > nis_threshold) nis_count_++, data["nis_fail"] = 1;
-  if (nees > nees_threshold) nees_count_++, data["nees_fail"] = 1;
+  data["nis_fail"] = nis > nis_threshold ? 1.0 : 0.0;
+  data["nees_fail"] = nees > nees_threshold ? 1.0 : 0.0;
+  if (nis > nis_threshold) nis_count_++;
+  if (nees > nees_threshold) nees_count_++;
   total_count_++;
   last_nis = nis;
 

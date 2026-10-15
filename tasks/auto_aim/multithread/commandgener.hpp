@@ -1,8 +1,10 @@
 #ifndef AUTO_AIM_MULTITHREAD__HPP
 #define AUTO_AIM_MULTITHREAD__HPP
 
+#include <atomic>
 #include <functional>
 #include <optional>
+#include <string>
 
 #include "io/command.hpp"
 #include "tasks/auto_aim/shooter.hpp"
@@ -21,7 +23,7 @@ public:
   CommandGener(
     auto_aim::Shooter & shooter, auto_aim::Aimer & aimer,
     std::function<void(const io::Command &)> send, tools::Plotter & plotter,
-    bool debug = false);
+    const std::string & config_path, bool debug = false);
 
   void stop();
 
@@ -50,7 +52,13 @@ private:
   std::mutex mtx_;
   std::condition_variable cv_;
   std::thread thread_;
-  bool stop_, debug_;
+  std::atomic<bool> stop_;
+  bool debug_;
+  bool output_initialized_ = false;
+  double last_yaw_ = 0.0;
+  double last_pitch_ = 0.0;
+  double max_yaw_rate_;
+  double max_pitch_rate_;
 
   void generate_command();
 };

@@ -20,6 +20,27 @@ Tracker::Tracker(const std::string & config_path, Solver & solver)
 {
   auto yaml = YAML::LoadFile(config_path);
   enemy_color_ = (yaml["enemy_color"].as<std::string>() == "red") ? Color::red : Color::blue;
+  target_model_config_.equal_radius =
+    yaml["equal_radius"] ? yaml["equal_radius"].as<bool>() : false;
+  target_model_config_.rotation_target =
+    yaml["rotation_target"] ? yaml["rotation_target"].as<bool>() : false;
+  target_model_config_.process_accel_variance = yaml["ekf_process_accel_variance"]
+                                                    ? yaml["ekf_process_accel_variance"].as<double>()
+                                                    : 100.0;
+  target_model_config_.process_angular_accel_variance =
+    yaml["ekf_process_angular_accel_variance"]
+      ? yaml["ekf_process_angular_accel_variance"].as<double>()
+      : 10.0;
+  target_model_config_.yaw_measurement_variance = yaml["ekf_yaw_measurement_variance"]
+                                                    ? yaml["ekf_yaw_measurement_variance"].as<double>()
+                                                    : 0.09;
+  target_model_config_.max_yaw_innovation =
+    (yaml["max_armor_yaw_innovation"]
+       ? yaml["max_armor_yaw_innovation"].as<double>()
+       : 20.0) /
+    57.3;
+  rotation_radius_ =
+    yaml["rotation_radius"] ? yaml["rotation_radius"].as<double>() : 0.2;
   min_detect_count_ = yaml["min_detect_count"].as<int>();
   max_temp_lost_count_ = yaml["max_temp_lost_count"].as<int>();
   outpost_max_temp_lost_count_ = yaml["outpost_max_temp_lost_count"].as<int>();
@@ -133,7 +154,9 @@ std::tuple<omniperception::DetectionResult, std::list<Target>> Tracker::track(
   }
 
   // 此时主相机画面中出现了优先级更高的装甲板，切换目标
-  else if (state_ == "tracking" && !armors.empty() && armors.front().priority < target_.priority) {
+  else if (
+    state_ == "tracking" && !target_model_config_.rotation_target && !armors.empty() &&
+    armors.front().priority < target_.priority) {
     found = set_target(armors, t);
     tools::logger()->debug("auto_aim switch target to {}", ARMOR_NAMES[armors.front().name]);
   }
@@ -242,24 +265,29 @@ bool Tracker::set_target(std::list<Armor> & armors, std::chrono::steady_clock::t
                     (armor.name == ArmorName::three || armor.name == ArmorName::four ||
                      armor.name == ArmorName::five);
 
-  if (is_balance) {
+  if (target_model_config_.rotation_target) {
+    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1e-4, 1e-6, 1}};
+    target_ = Target(armor, t, rotation_radius_, 4, P0_dig, target_model_config_);
+  }
+
+  else if (is_balance) {
     Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1, 1, 1}};
-    target_ = Target(armor, t, 0.2, 2, P0_dig);
+    target_ = Target(armor, t, 0.2, 2, P0_dig, target_model_config_);
   }
 
   else if (armor.name == ArmorName::outpost) {
     Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 81, 0.4, 100, 1e-4, 0, 0}};
-    target_ = Target(armor, t, 0.2765, 3, P0_dig);
+    target_ = Target(armor, t, 0.2765, 3, P0_dig, target_model_config_);
   }
 
   else if (armor.name == ArmorName::base) {
     Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1e-4, 0, 0}};
-    target_ = Target(armor, t, 0.3205, 3, P0_dig);
+    target_ = Target(armor, t, 0.3205, 3, P0_dig, target_model_config_);
   }
 
   else {
     Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1, 1, 1}};
-    target_ = Target(armor, t, 0.2, 4, P0_dig);
+    target_ = Target(armor, t, 0.2, 4, P0_dig, target_model_config_);
   }
 
   return true;
@@ -272,7 +300,7 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
   int found_count = 0;
   double min_x = 1e10;  // 画面最左侧
   for (const auto & armor : armors) {
-    if (armor.name != target_.name || armor.type != target_.armor_type) continue;
+    if (!matches_target(armor)) continue;
     found_count++;
     min_x = armor.center.x < min_x ? armor.center.x : min_x;
   }
@@ -281,7 +309,7 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
 
   for (auto & armor : armors) {
     if (
-      armor.name != target_.name || armor.type != target_.armor_type
+      !matches_target(armor)
       //  || armor.center.x != min_x
     )
       continue;
@@ -292,6 +320,12 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
   }
 
   return true;
+}
+
+bool Tracker::matches_target(const Armor & armor) const
+{
+  if (target_model_config_.rotation_target) return armor.type == target_.armor_type;
+  return armor.name == target_.name && armor.type == target_.armor_type;
 }
 
 }  // namespace auto_aim

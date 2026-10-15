@@ -161,6 +161,7 @@ private:
   std::thread rx_thread_;
   std::thread tx_thread_;
   std::atomic<bool> quit_{false};
+  std::atomic<bool> rx_ready_{false};
   bool open_failed_ = false;  // 串口全部打开失败(如C板未插)：wait_ready 立即返回 false，不再抛异常崩溃
 
   mutable std::mutex state_mutex_;
@@ -168,6 +169,7 @@ private:
 
   std::mutex tx_mutex_;
   TxCommand tx_command_;
+  bool has_valid_command_ = false;
   // 主循环最近一次 send() 的时间戳（微秒）。TX 线程据此做失联保护：
   // 超过 TX_HEARTBEAT_TIMEOUT_US 未刷新，自动撤销 control/fire（保留角度）。
   std::atomic<int64_t> last_send_us_{0};

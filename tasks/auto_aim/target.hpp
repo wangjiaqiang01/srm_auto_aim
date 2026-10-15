@@ -14,6 +14,16 @@
 namespace auto_aim
 {
 
+struct TargetModelConfig
+{
+  bool equal_radius = false;
+  bool rotation_target = false;
+  double process_accel_variance = 100.0;
+  double process_angular_accel_variance = 10.0;
+  double yaw_measurement_variance = 0.09;
+  double max_yaw_innovation = 0.35;
+};
+
 class Target
 {
 public:
@@ -26,7 +36,7 @@ public:
   Target() = default;
   Target(
     const Armor & armor, std::chrono::steady_clock::time_point t, double radius, int armor_num,
-    Eigen::VectorXd P0_dig);
+    Eigen::VectorXd P0_dig, const TargetModelConfig & config = {});
   Target(double x, double vyaw, double radius, double h);
 
   void predict(std::chrono::steady_clock::time_point t);
@@ -37,6 +47,7 @@ public:
   Eigen::VectorXd ekf_x() const;
   const tools::ExtendedKalmanFilter & ekf() const;
   std::vector<Eigen::Vector4d> armor_xyza_list() const;
+  bool rotation_target() const;
 
   bool diverged() const;
 
@@ -48,6 +59,7 @@ public:
 
 private:
   int armor_num_;
+  TargetModelConfig model_config_;
   int switch_count_;
   int update_count_;
 

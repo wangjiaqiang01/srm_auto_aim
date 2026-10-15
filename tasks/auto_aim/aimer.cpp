@@ -33,12 +33,12 @@ io::Command Aimer::aim(
   std::list<Target> targets, std::chrono::steady_clock::time_point timestamp, double bullet_speed,
   bool to_now)
 {
-  if (targets.empty()) return {false, false, 0, 0};
+  if (targets.empty()) return last_cmd_;
   auto target = targets.front();
 
   auto ekf = target.ekf();
   double delay_time =
-    target.ekf_x()[7] > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
+    std::abs(target.ekf_x()[7]) > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
 
   if (bullet_speed < 10 || bullet_speed > 25) bullet_speed = 22;
 
@@ -62,7 +62,7 @@ io::Command Aimer::aim(
   debug_aim_point = aim_point0;
   if (!aim_point0.valid) {
     // tools::logger()->debug("Invalid aim_point0.");
-    return {false, false, 0, 0};
+    return last_cmd_;
   }
 
   Eigen::Vector3d xyz0 = aim_point0.xyza.head(3);
@@ -72,7 +72,7 @@ io::Command Aimer::aim(
     tools::logger()->debug(
       "[Aimer] Unsolvable trajectory0: {:.2f} {:.2f} {:.2f}", bullet_speed, d0, xyz0[2]);
     debug_aim_point.valid = false;
-    return {false, false, 0, 0};
+    return last_cmd_;
   }
 
   // 迭代求解飞行时间 (最多10次，收敛条件：相邻两次fly_time差 <0.001)
@@ -90,7 +90,7 @@ io::Command Aimer::aim(
     auto aim_point = choose_aim_point(iteration_target[iter]);
     debug_aim_point = aim_point;
     if (!aim_point.valid) {
-      return {false, false, 0, 0};
+      return last_cmd_;
     }
 
     // 计算新弹道
@@ -104,7 +104,7 @@ io::Command Aimer::aim(
         "[Aimer] Unsolvable trajectory in iter {}: speed={:.2f}, d={:.2f}, z={:.2f}", iter + 1,
         bullet_speed, d, xyz.z());
       debug_aim_point.valid = false;
-      return {false, false, 0, 0};
+      return last_cmd_;
     }
 
     // 检查收敛条件
@@ -119,7 +119,7 @@ io::Command Aimer::aim(
   Eigen::Vector3d final_xyz = debug_aim_point.xyza.head(3);
   double yaw = std::atan2(final_xyz.y(), final_xyz.x()) + yaw_offset_;
   double pitch = -(current_traj.pitch + pitch_offset_);  //世界坐标系下pitch向上为负
-  return {true, false, yaw, pitch};
+  return last_cmd_ = {true, false, yaw, pitch};
 }
 
 io::Command Aimer::aim(
@@ -138,7 +138,7 @@ io::Command Aimer::aim(
   auto command = aim(targets, timestamp, bullet_speed, to_now);
   command.yaw = command.yaw - yaw_offset_ + yaw_offset;
 
-  return command;
+  return last_cmd_ = command;
 }
 
 AimPoint Aimer::choose_aim_point(const Target & target)
@@ -160,7 +160,9 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   // 不考虑小陀螺
-  if (std::abs(target.ekf_x()[8]) <= 2 && target.name != ArmorName::outpost) {
+  if (
+    std::abs(target.ekf_x()[7]) <= decision_speed_ &&
+    (target.name != ArmorName::outpost || target.rotation_target())) {
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
     for (int i = 0; i < armor_num; i++) {
@@ -190,7 +192,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   double coming_angle, leaving_angle;
-  if (target.name == ArmorName::outpost) {
+  if (target.name == ArmorName::outpost && !target.rotation_target()) {
     coming_angle = 70 / 57.3;
     leaving_angle = 30 / 57.3;
   } else {

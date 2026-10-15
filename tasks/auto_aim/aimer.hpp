@@ -41,6 +41,7 @@ private:
   double high_speed_delay_time_;
   double low_speed_delay_time_;
   double decision_speed_;
+  io::Command last_cmd_{false, false, 0, 0};
 
   AimPoint choose_aim_point(const Target & target);
 };

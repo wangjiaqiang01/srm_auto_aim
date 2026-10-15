@@ -33,6 +33,8 @@ public:
 private:
   Solver & solver_;
   Color enemy_color_;
+  TargetModelConfig target_model_config_;
+  double rotation_radius_;
   int min_detect_count_;
   int max_temp_lost_count_;
   int detect_count_;
@@ -49,6 +51,7 @@ private:
   bool set_target(std::list<Armor> & armors, std::chrono::steady_clock::time_point t);
 
   bool update_target(std::list<Armor> & armors, std::chrono::steady_clock::time_point t);
+  bool matches_target(const Armor & armor) const;
 };
 
 }  // namespace auto_aim

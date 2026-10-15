@@ -157,11 +157,11 @@ SrmLink::SrmLink(const std::string & config_path)
     return;
   }
 
-  rx_thread_ = std::thread(&SrmLink::rx_loop, this);
-  tx_thread_ = std::thread(&SrmLink::tx_loop, this);
   last_send_us_ = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now().time_since_epoch())
                     .count();
+  rx_thread_ = std::thread(&SrmLink::rx_loop, this);
+  tx_thread_ = std::thread(&SrmLink::tx_loop, this);
   tools::logger()->info("[SrmLink] started on {}", configured_port_);
 }
 
@@ -260,14 +260,23 @@ void SrmLink::handle_packet(
     speed = SRM_DEFAULT_BULLET_SPEED;
   }
 
-  std::lock_guard<std::mutex> lock(state_mutex_);
-  state_.yaw = yaw;
-  state_.pitch = pitch;
-  state_.roll = roll;
-  state_.mode = g.mode;
-  state_.color = g.color;
-  state_.bullet_speed = speed;
-  ++state_.rx_frame_count;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    state_.yaw = yaw;
+    state_.pitch = pitch;
+    state_.roll = roll;
+    state_.mode = g.mode;
+    state_.color = g.color;
+    state_.bullet_speed = speed;
+    ++state_.rx_frame_count;
+  }
+
+  std::lock_guard<std::mutex> lock(tx_mutex_);
+  if (!has_valid_command_) {
+    tx_command_.yaw_rad = yaw;
+    tx_command_.pitch_rad = pitch;
+  }
+  rx_ready_ = true;
 }
 
 void SrmLink::rx_loop()
@@ -323,6 +332,11 @@ void SrmLink::rx_loop()
 void SrmLink::tx_loop()
 {
   while (!quit_) {
+    if (!rx_ready_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      continue;
+    }
+
     TxCommand cmd;
     bool stale = false;
     {
@@ -362,7 +376,13 @@ void SrmLink::send(bool control, bool fire, double yaw_rad, double pitch_rad)
 {
   {
     std::lock_guard<std::mutex> lock(tx_mutex_);
-    tx_command_ = {control, fire, yaw_rad, pitch_rad};
+    tx_command_.control = control;
+    tx_command_.fire = control && fire;
+    if (control && std::isfinite(yaw_rad) && std::isfinite(pitch_rad)) {
+      tx_command_.yaw_rad = yaw_rad;
+      tx_command_.pitch_rad = pitch_rad;
+      has_valid_command_ = true;
+    }
   }
   last_send_us_.store(
     std::chrono::duration_cast<std::chrono::microseconds>(

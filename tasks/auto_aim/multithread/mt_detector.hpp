@@ -33,8 +33,8 @@ private:
   YOLO yolo_;
 
   tools::ThreadSafeQueue<
-    std::tuple<cv::Mat, std::chrono::steady_clock::time_point, ov::InferRequest>>
-    queue_{16, [] { tools::logger()->debug("[MultiThreadDetector] queue is full!"); }};
+    std::tuple<cv::Mat, std::chrono::steady_clock::time_point, ov::InferRequest>, true>
+    queue_{4};
 };
 
 }  // namespace multithread

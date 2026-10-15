@@ -77,7 +77,7 @@ int main(int argc, char * argv[])
         last_command_log = now;
       }
       last_fire = fire;
-    }, plotter, true);
+    }, plotter, config_path, true);
 
   auto detect_thread = std::thread([&]() {
     cv::Mat img;
