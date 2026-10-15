@@ -48,6 +48,8 @@ public:
   const tools::ExtendedKalmanFilter & ekf() const;
   std::vector<Eigen::Vector4d> armor_xyza_list() const;
   bool rotation_target() const;
+  int current_id() const { return last_id; }  // 当前跟踪装甲板 id
+
 
   bool diverged() const;
 

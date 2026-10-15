@@ -1,4 +1,5 @@
 #include <fmt/core.h>
+#include <iostream>
 
 #include <atomic>
 #include <chrono>
@@ -28,6 +29,8 @@ const std::string keys =
 int main(int argc, char * argv[])
 {
   tools::Exiter exiter;
+  tools::logger()->set_level(spdlog::level::warn);  // 静音 tracker/target 内部 info，关键数据走 fmt::print
+
   tools::Plotter plotter;
 
   cv::CommandLineParser cli(argc, argv, keys);
@@ -107,6 +110,14 @@ int main(int argc, char * argv[])
         data["w"] = target->ekf_x()[7];
       } else {
         data["w"] = 0.0;
+      }
+
+      if (target.has_value()) {
+        const auto & x = target->ekf_x();
+        fmt::print(
+          "[MPC] r={:.3f} w={:.2f} id={} target_yaw={:.2f} plan_yaw={:.2f} gimbal_yaw={:.2f} ekf_yaw={:.2f}\n",
+          x[8], x[7], target->current_id(), plan.target_yaw, plan.yaw, gs.yaw, x[6] * 57.3);
+        std::cout.flush();
       }
 
       plotter.plot(data);
