@@ -266,7 +266,7 @@ bool Tracker::set_target(std::list<Armor> & armors, std::chrono::steady_clock::t
                      armor.name == ArmorName::five);
 
   if (target_model_config_.rotation_target) {
-    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1e-8, 1e-6, 1}};
+    Eigen::VectorXd P0_dig{{1, 64, 1, 64, 1, 64, 0.4, 100, 1, 1e-6, 1}};
     target_ = Target(armor, t, rotation_radius_, 4, P0_dig, target_model_config_);
   }
 
