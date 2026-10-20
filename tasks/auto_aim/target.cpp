@@ -98,7 +98,7 @@ void Target::predict(double dt)
   double v1, v2;
   if (name == ArmorName::outpost && !model_config_.rotation_target) {
     v1 = 10;   // 前哨站加速度方差
-    v2 = 0.1;  // 前哨站角加速度方差
+    v2 = 1;  // 前哨站角加速度方差
   } else {
     v1 = model_config_.process_accel_variance;
     v2 = model_config_.process_angular_accel_variance;

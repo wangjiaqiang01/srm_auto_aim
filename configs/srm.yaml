@@ -5,12 +5,12 @@
 # ============================================================
 
 # 敌方颜色兜底（当下行 color=0 未注入时使用）；现场确认后改 red/blue
-enemy_color: "blue"
+enemy_color: "red"
 # 下行 color 为本方机器人 ID：ID >= 阈值视为蓝方（敌方红），否则敌方蓝
 color_id_blue_threshold: 100
 
 #####-----神经网络参数-----#####
-yolo_name: yolov5
+yolo_name: yolov8
 classify_model: assets/tiny_resnet.onnx
 yolo11_model_path: assets/yolo11.xml
 yolov8_model_path: assets/yolov8.xml
@@ -45,16 +45,16 @@ equal_radius: true
 rotation_radius: 0.2175  # 板中心实测 (41+46)/2 cm
 # 旋转装甲板 EKF 基线：最终 5m、2rps、半径 0.20m；当前先用于 2.5m 调试
 ekf_process_accel_variance: 100
-ekf_process_angular_accel_variance: 0.1  # 恢复调参期稳定值(5803d17): v2=0.1 时 w 稳定 3.07; 修正 Codex 错误参数(3)导致 w 漂移
+ekf_process_angular_accel_variance: 1  # 恢复调参期稳定值(5803d17): v2=0.1 时 w 稳定 3.07; 修正 Codex 错误参数(3)导致 w 漂移
 ekf_yaw_measurement_variance: 0.09  # 恢复调参期稳定值(5803d17): R[3]=9e-2; 尖峰由 max_armor_yaw_innovation 过滤承担; 修正 Codex 错误参数(0.5)
-max_armor_yaw_innovation: 20  # degree; reject unstable long-range normal-angle estimates
+max_armor_yaw_innovation: 20 # degree; reject unstable long-range normal-angle estimates
 rotation_target: true  # rotating rig: four faces, fixed model radius, class-tolerant association
 max_temp_lost_count: 15
 outpost_max_temp_lost_count: 75
 
 #####-----aimer 参数（旋转决策，现场按实测转速调整）-----#####
-yaw_offset: 0        # degree，现场标定
-pitch_offset: 0      # degree，现场标定（5m 弹道下坠主要修正项）
+yaw_offset: -1        # degree，现场标定
+pitch_offset: -1.5     # degree，现场标定（5m 弹道下坠主要修正项）
 comming_angle: 55    # degree，小陀螺分支“正在转出来”的可射角
 leaving_angle: 20    # degree，小于该角视为“正在转走”，停止开火
 decision_speed: 7    # rad/s，|w| 超过它才走来向角逻辑；慢靶需调低
@@ -71,7 +71,7 @@ auto_fire: true
 
 #####-----相机参数（海康 CS016，现场按实际 vid_pid/分辨率调整）-----#####
 camera_name: "hikrobot"
-exposure_ms: 0.9   # 与 vision 一致
+exposure_ms: 3   # 与 vision 一致
 gain: 16.9
 vid_pid: "2bdf:0001"
 
