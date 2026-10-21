@@ -19,6 +19,7 @@ public:
 
 private:
   io::Command last_command_;
+  double last_gimbal_yaw_;  // 上一帧云台 yaw（用于计算云台实际角速度，稳定跟随门控）
   double judge_distance_;
   double first_tolerance_;
   double second_tolerance_;
