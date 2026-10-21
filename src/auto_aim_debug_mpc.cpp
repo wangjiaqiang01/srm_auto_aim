@@ -67,10 +67,6 @@ int main(int argc, char * argv[])
       auto gs = srm.state();
       auto plan = planner.plan(target, gs.bullet_speed);
 
-      // SrmLink 协议只支持 yaw/pitch 角度目标 + fire，MPC 的 vel/acc 前馈无法下发，
-      // 云台角度跟踪由下位机完成
-      srm.send(plan.control, plan.fire, plan.yaw, plan.pitch);
-
       auto now = std::chrono::steady_clock::now();
       double dt = tools::delta_time(now, prev_t);
       double yaw_vel = (dt > 1e-6) ? (gs.yaw - prev_yaw) / dt : 0.0;
@@ -78,6 +74,14 @@ int main(int argc, char * argv[])
       prev_yaw = gs.yaw;
       prev_pitch = gs.pitch;
       prev_t = now;
+
+      // 下降段门控：仅云台 yaw 下降（gimbal_yaw_vel < 0）时允许开火，上升段/回程换板禁射
+      // 若过零抖动导致误判，可把 0.0 改为 -0.001（更严格）或 +0.001（更宽松）
+      bool fire = plan.fire && yaw_vel < 0.0;
+
+      // SrmLink 协议只支持 yaw/pitch 角度目标 + fire，MPC 的 vel/acc 前馈无法下发，
+      // 云台角度跟踪由下位机完成
+      srm.send(plan.control, fire, plan.yaw, plan.pitch);
 
       nlohmann::json data;
       data["t"] = tools::delta_time(std::chrono::steady_clock::now(), t0);
@@ -98,7 +102,7 @@ int main(int argc, char * argv[])
       data["plan_pitch_vel"] = plan.pitch_vel;
       data["plan_pitch_acc"] = plan.pitch_acc;
 
-      data["fire"] = plan.fire ? 1 : 0;
+      data["fire"] = fire ? 1 : 0;
       data["fired"] = 0;  // SrmLink 无弹丸计数反馈，置 0
 
       if (target.has_value()) {
