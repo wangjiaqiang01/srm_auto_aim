@@ -75,9 +75,11 @@ int main(int argc, char * argv[])
       prev_pitch = gs.pitch;
       prev_t = now;
 
-      // 下降段门控：仅云台 yaw 下降（gimbal_yaw_vel < 0）时允许开火，上升段/回程换板禁射
-      // 若过零抖动导致误判，可把 0.0 改为 -0.001（更严格）或 +0.001（更宽松）
-      bool fire = plan.fire && yaw_vel < 0.0;
+      // 下降段门控：仅云台 yaw 明显下降（gimbal_yaw_vel < -0.5）时允许开火；
+      // 负死区把静止靶差分噪声区间（|yaw_vel| < 0.5）整体禁射，避免 fire 位高频翻转导致云台震动；
+      // 旋转靶下降段 yaw_vel≈-3 正常开火；回程上升段 >0 禁射
+      // 若静止靶仍轻微震动 → 死区调大（-0.8 ~ -1.0）；若顺向段开火变稀疏 → 调小（-0.2）
+      bool fire = plan.fire && yaw_vel < -0.5;
 
       // SrmLink 协议只支持 yaw/pitch 角度目标 + fire，MPC 的 vel/acc 前馈无法下发，
       // 云台角度跟踪由下位机完成
