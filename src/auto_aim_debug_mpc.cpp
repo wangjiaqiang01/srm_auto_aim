@@ -54,7 +54,6 @@ int main(int argc, char * argv[])
 
   tools::ThreadSafeQueue<std::optional<auto_aim::Target>, true> target_queue(1);
   target_queue.push(std::nullopt);
-  std::atomic<int> target_count{0};  // 当前帧稳定跟踪的装甲板数量（>=2 视为换板/跨板瞬间，禁射）
 
   std::atomic<bool> quit = false;
   auto plan_thread = std::thread([&]() {
@@ -79,7 +78,7 @@ int main(int argc, char * argv[])
       // 下降段门控：仅云台 yaw 下降超过死区（gimbal_yaw_vel < -0.1）时允许开火；
       // 现场实测 yaw_vel 最大变化约 0.5，-0.1 死区滤掉过零抖动且不过度切掉顺向段；
       // 若静止靶仍轻微震动 → 死区调大（-0.3 ~ -0.5）；若顺向段开火变稀疏 → 调小（-0.05）
-      bool fire = plan.fire && target_count.load() < 2 && yaw_vel < -0.1;
+      bool fire = plan.fire && yaw_vel < -0.1;
 
       // SrmLink 协议只支持 yaw/pitch 角度目标 + fire，MPC 的 vel/acc 前馈无法下发，
       // 云台角度跟踪由下位机完成
@@ -142,7 +141,6 @@ int main(int argc, char * argv[])
     solver.set_R_gimbal2world(q);
     auto armors = yolo.detect(img);
     auto targets = tracker.track(armors, t);
-    target_count.store(static_cast<int>(targets.size()));  // 供 plan_thread 多板禁射
     if (!targets.empty())
       target_queue.push(targets.front());
     else
