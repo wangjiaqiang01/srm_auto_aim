@@ -5,7 +5,7 @@
 # ============================================================
 
 # 敌方颜色兜底（当下行 color=0 未注入时使用）；现场确认后改 red/blue
-enemy_color: "red"
+enemy_color: "blue"
 # 下行 color 为本方机器人 ID：ID >= 阈值视为蓝方（敌方红），否则敌方蓝
 color_id_blue_threshold: 100
 
