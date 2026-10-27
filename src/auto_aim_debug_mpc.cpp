@@ -78,7 +78,7 @@ int main(int argc, char * argv[])
       // 下降段门控：仅云台 yaw 下降超过死区（gimbal_yaw_vel < -0.1）时允许开火；
       // 现场实测 yaw_vel 最大变化约 0.5，-0.1 死区滤掉过零抖动且不过度切掉顺向段；
       // 若静止靶仍轻微震动 → 死区调大（-0.3 ~ -0.5）；若顺向段开火变稀疏 → 调小（-0.05）
-      bool fire = plan.fire && yaw_vel < -0.1;
+      bool fire = plan.fire && yaw_vel < 0.1;  /* 静止或下降段允许, 上升段禁止 */
 
       // SrmLink 协议只支持 yaw/pitch 角度目标 + fire，MPC 的 vel/acc 前馈无法下发，
       // 云台角度跟踪由下位机完成
