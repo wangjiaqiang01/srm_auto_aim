@@ -7,7 +7,7 @@
 ## 来源与合规声明
 
 - **算法基线**：同济大学 SuperPower 开源项目 [sp-vision-25](https://github.com/TongjiSuperPower)（检测 / PnP 解算 / 11 维 EKF 旋转跟踪 / Aimer 选板 / Shooter 开火判据均沿用其开源实现，按赛道要求仅做最小参数适配）。
-- **通信层**：严格按照《SRM 校内赛自瞄通信协议》**从零自研**（`io/srm_link/`：2 字节小端 body_len + ID 记录、流式组帧、严格长度白名单、100 Hz 发送线程），参考本人历史开源项目 vision-d 的工程经验，未拷贝其代码。
+- **通信层**：严格按照《SRM 校内赛自瞄通信协议》**从零自研**（`io/srm_link/`：2 字节小端 body_len + ID 记录、流式组帧、严格长度白名单、100 Hz 发送线程），参考
 - **未使用** SRM 战队队内既有代码。
 - 随仓携带：同济 demo 视频（`assets/demo/`，离线测试用）、YOLO 模型、海康 / 迈德威相机 SDK 动态库（均为开源项目随附或官方 SDK）。
 
