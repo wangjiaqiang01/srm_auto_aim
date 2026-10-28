@@ -310,7 +310,7 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
   for (auto & armor : armors) {
     if (
       !matches_target(armor)
-      //  || armor.center.x != min_x
+      || armor.center.x != min_x
     )
       continue;
 
