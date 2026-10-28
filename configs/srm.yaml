@@ -53,8 +53,8 @@ max_temp_lost_count: 15
 outpost_max_temp_lost_count: 75
 
 #####-----aimer 参数（旋转决策，现场按实测转速调整）-----#####
-yaw_offset: -1        # degree，现场标定
-pitch_offset: -1.5     # degree，现场标定（5m 弹道下坠主要修正项）
+yaw_offset: -1.5       # degree，现场标定
+pitch_offset: -1.3     # degree，现场标定（5m 弹道下坠主要修正项）
 comming_angle: 55    # degree，小陀螺分支“正在转出来”的可射角
 leaving_angle: 20    # degree，小于该角视为“正在转走”，停止开火
 decision_speed: 7    # rad/s，|w| 超过它才走来向角逻辑；慢靶需调低
